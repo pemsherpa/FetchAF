@@ -386,11 +386,11 @@ if st.button("← Back", key="back_button"):
 
 db_status = st.empty()
 
-db_user = os.getenv("DB_USER", "issu")
-db_password = os.getenv("DB_PASSWORD", "1234")
+db_user = os.getenv("DB_USER", "Pema")
+db_password = os.getenv("DB_PASSWORD", "delusional")
 db_host = os.getenv("DB_HOST", "localhost")
-db_port = os.getenv("DB_PORT", "5432")
-db_name = os.getenv("DB_NAME", "testdb")
+db_port = os.getenv("DB_PORT", "5433")
+db_name = os.getenv("DB_NAME", "AgileDB")
 
 # Connect to PostgreSQL using SQLAlchemy
 def get_db_engine():

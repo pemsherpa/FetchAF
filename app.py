@@ -1,16 +1,28 @@
 import streamlit as st
-import hashlib
+# First Streamlit command must be set_page_config
+st.set_page_config(page_title="FetchAF", layout="wide")
 
-# Initialize session state for user data and login status
-if 'users' not in st.session_state:
-    st.session_state.users = {}  # Store username: hashed_password
+import hashlib
+import os
+import uuid
+import time
+from sqlalchemy import create_engine, text, Table, Column, String, MetaData
+from dotenv import load_dotenv
+import extra_streamlit_components as stx
+
+# Load environment variables
+load_dotenv()
+
+# Initialize cookie manager without caching
+cookie_manager = stx.CookieManager()
+
+# Initialize session state for login status
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
 # Hide Streamlit's default sidebar for login/signup and welcome pages
-st.set_page_config(page_title="FetchAF", layout="wide")
 st.markdown(
     """
     <style>
@@ -235,6 +247,156 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# Database connection
+db_user = os.getenv("DB_USER", "Pema")
+db_password = os.getenv("DB_PASSWORD", "delusional")
+db_host = os.getenv("DB_HOST", "localhost")
+db_port = os.getenv("DB_PORT", "5433")
+db_name = os.getenv("DB_NAME", "AgileDB")
+
+# Create database engine
+def get_db_engine():
+    try:
+        connection_string = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        engine = create_engine(connection_string)
+        return engine
+    except Exception as e:
+        st.error(f"Database connection error: {str(e)}")
+        return None
+
+# Initialize database and create users table if it doesn't exist
+def init_db():
+    engine = get_db_engine()
+    if not engine:
+        return False
+    
+    try:
+        # Create users table if it doesn't exist
+        metadata = MetaData()
+        users_table = Table(
+            'fetchaf_users', metadata,
+            Column('username', String, primary_key=True),
+            Column('password_hash', String)
+        )
+        
+        # Create sessions table if it doesn't exist
+        sessions_table = Table(
+            'fetchaf_sessions', metadata,
+            Column('session_id', String, primary_key=True),
+            Column('username', String),
+            Column('expires_at', String)
+        )
+        
+        metadata.create_all(engine)
+        return True
+    except Exception as e:
+        st.error(f"Database initialization error: {str(e)}")
+        return False
+
+# Check if user exists
+def user_exists(username):
+    engine = get_db_engine()
+    if not engine:
+        return False
+    
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(f"SELECT username FROM fetchaf_users WHERE username = :username"), 
+                                {"username": username})
+            return result.fetchone() is not None
+    except Exception as e:
+        st.error(f"Database error: {str(e)}")
+        return False
+
+# Set a cookie for persistent login session
+def set_auth_cookie(username):
+    # Generate a unique session ID
+    session_id = str(uuid.uuid4())
+    # Set expiration to 30 days from now
+    expiry_time = int(time.time()) + (30 * 24 * 60 * 60)
+    
+    # Store session in database
+    engine = get_db_engine()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                # Delete any existing sessions for this user
+                conn.execute(text("DELETE FROM fetchaf_sessions WHERE username = :username"), 
+                            {"username": username})
+                
+                # Create a new session
+                conn.execute(text(
+                    "INSERT INTO fetchaf_sessions (session_id, username, expires_at) VALUES (:session_id, :username, :expires_at)"
+                ), {
+                    "session_id": session_id,
+                    "username": username,
+                    "expires_at": str(expiry_time)
+                })
+                conn.commit()
+                
+                # Set cookie in browser
+                cookie_manager.set("auth_token", session_id, expires_at=expiry_time)
+                return True
+        except Exception as e:
+            st.error(f"Session creation error: {str(e)}")
+    
+    return False
+
+# Verify and load user from cookie
+def verify_auth_cookie():
+    # Get session ID from cookie
+    session_id = cookie_manager.get("auth_token")
+    if not session_id:
+        return None
+    
+    # Validate session in database
+    engine = get_db_engine()
+    if engine:
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text(
+                    "SELECT username, expires_at FROM fetchaf_sessions WHERE session_id = :session_id"
+                ), {"session_id": session_id})
+                
+                session_data = result.fetchone()
+                if session_data:
+                    username, expires_at = session_data
+                    
+                    # Check if session has expired
+                    if int(expires_at) > int(time.time()):
+                        return username
+                    else:
+                        # Delete expired session
+                        conn.execute(text(
+                            "DELETE FROM fetchaf_sessions WHERE session_id = :session_id"
+                        ), {"session_id": session_id})
+                        conn.commit()
+                        cookie_manager.delete("auth_token")
+        except Exception as e:
+            st.error(f"Session verification error: {str(e)}")
+    
+    return None
+
+# Clear auth cookie on logout
+def clear_auth_cookie():
+    # Get session ID from cookie
+    session_id = cookie_manager.get("auth_token")
+    if session_id:
+        # Remove session from database
+        engine = get_db_engine()
+        if engine:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        "DELETE FROM fetchaf_sessions WHERE session_id = :session_id"
+                    ), {"session_id": session_id})
+                    conn.commit()
+            except Exception as e:
+                st.error(f"Session removal error: {str(e)}")
+    
+    # Delete cookie from browser
+    cookie_manager.delete("auth_token")
+
 # Function to navigate to main.py
 def navigate_to_main():
     try:
@@ -246,6 +408,27 @@ def navigate_to_main():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+# Function to verify user credentials
+def verify_credentials(username, password):
+    engine = get_db_engine()
+    if not engine:
+        return False
+    
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(
+                "SELECT password_hash FROM fetchaf_users WHERE username = :username"),
+                {"username": username})
+            user_data = result.fetchone()
+            
+            if user_data:
+                stored_hash = user_data[0]
+                return stored_hash == hash_password(password)
+            return False
+    except Exception as e:
+        st.error(f"Authentication error: {str(e)}")
+        return False
+
 # Function to display signup form
 def signup():
     st.subheader("Create a New Account")
@@ -255,13 +438,28 @@ def signup():
 
     if st.button("Sign Up", key="signup_button"):
         if new_username and new_password and confirm_password:
-            if new_username in st.session_state.users:
+            if user_exists(new_username):
                 st.error("Username already exists!")
             elif new_password != confirm_password:
                 st.error("Passwords do not match!")
             else:
-                st.session_state.users[new_username] = hash_password(new_password)
-                st.success("Account created successfully! Please log in.")
+                # Create new user in database
+                engine = get_db_engine()
+                if engine:
+                    try:
+                        with engine.connect() as conn:
+                            conn.execute(text(
+                                "INSERT INTO fetchaf_users (username, password_hash) VALUES (:username, :password_hash)"
+                            ), {
+                                "username": new_username,
+                                "password_hash": hash_password(new_password)
+                            })
+                            conn.commit()
+                            st.success("Account created successfully! Please log in.")
+                    except Exception as e:
+                        st.error(f"Account creation failed: {str(e)}")
+                else:
+                    st.error("Database connection error. Please try again later.")
         else:
             st.error("Please fill in all fields!")
 
@@ -270,19 +468,24 @@ def login():
     st.subheader("Login to Your Account")
     username = st.text_input("Username", key="username")
     password = st.text_input("Password", type="password", key="password")
+    remember_me = st.checkbox("Remember me", value=True)
 
     if st.button("Login", key="login_button"):
-        if username in st.session_state.users:
-            hashed_password = hash_password(password)
-            if st.session_state.users[username] == hashed_password:
+        if username and password:
+            if verify_credentials(username, password):
                 st.session_state.logged_in = True
                 st.session_state.current_user = username
+                
+                # Set persistent cookie if remember me is checked
+                if remember_me:
+                    set_auth_cookie(username)
+                
                 st.success(f"Welcome back, {username}!")
                 st.rerun()
             else:
-                st.error("Incorrect password!")
+                st.error("Invalid username or password!")
         else:
-            st.error("Username not found!")
+            st.error("Please enter both username and password!")
 
 # Function to display welcome page
 def welcome_page():
@@ -340,6 +543,8 @@ def welcome_page():
         
         # Hidden logout button
         if st.button("Logout", key="logout_button", type="primary"):
+            # Clear cookie on logout
+            clear_auth_cookie()
             st.session_state.logged_in = False
             st.session_state.current_user = None
             st.rerun()
@@ -384,6 +589,18 @@ def login_signup_page():
 
 # Main app logic
 def main():
+    # Initialize database
+    db_initialized = init_db()
+    if not db_initialized:
+        st.error("Failed to connect to the database. User authentication will not work properly.")
+    
+    # Check for existing login cookie
+    if not st.session_state.logged_in:
+        username = verify_auth_cookie()
+        if username:
+            st.session_state.logged_in = True
+            st.session_state.current_user = username
+    
     if not st.session_state.logged_in:
         login_signup_page()
     else:

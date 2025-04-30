@@ -51,7 +51,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./seed_data.sql:/docker-entrypoint-initdb.d/seed_data.sql
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_PORT}:5433"
     restart: unless-stopped
 
   app:
@@ -65,7 +65,7 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=localhost
-      - DB_PORT=5432
+      - DB_PORT=5433
       - DB_NAME=${DB_NAME}
       - COHERE_API_KEY=${COHERE_API_KEY}
     ports:

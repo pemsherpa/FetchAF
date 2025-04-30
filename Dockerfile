@@ -35,11 +35,11 @@ COPY . .
 EXPOSE 8501
 
 # Environment variables (optional, adjust based on .env)
-ENV DB_USER=issu
-ENV DB_PASSWORD=1234
+ENV DB_USER=Pema
+ENV DB_PASSWORD=delusional
 ENV DB_HOST=localhost
-ENV DB_PORT=5432
-ENV DB_NAME=testdb
+ENV DB_PORT=5433
+ENV DB_NAME=AgileDB
 
 # Run the Streamlit app with explicit app.py
 CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

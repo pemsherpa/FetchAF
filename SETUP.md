@@ -106,7 +106,7 @@ Create a file named `.env` in the project folder with the following information:
 DB_USER=postgres
 DB_PASSWORD=delusional  # You can change this if you want
 DB_HOST=db              # Keep this as "db" for Docker setup
-DB_PORT=5432            # Standard PostgreSQL port
+DB_PORT=5432           # Standard PostgreSQL port
 DB_NAME=AgileDB
 COHERE_API_KEY=your_cohere_api_key_here
 ```
