@@ -12,3 +12,4 @@ sentencepiece
 python-dotenv 
 cohere 
 extra-streamlit-components 
+coverage 
