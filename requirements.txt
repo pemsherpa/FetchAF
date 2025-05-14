@@ -12,4 +12,7 @@ sentencepiece
 python-dotenv 
 cohere 
 extra-streamlit-components 
-coverage 
+
+# Testing dependencies
+coverage>=7.4.0
+pylint>=3.0.3 
